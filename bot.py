@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timedelta, date
 from beem import Hive
 from beem.account import Account
@@ -8,13 +9,33 @@ from beem.exceptions import ContentDoesNotExistsException
 from beem.instance import set_shared_blockchain_instance
 import random
 
+
+FILENAME_BLOCKNUM = 'current_block.txt'
+FILENAME_POSTING = 'posting.txt'
+FILENAME_NOTIFIED = 'notified.txt'
+
+
+def get_last_block_number():
+    if not os.path.exists(FILENAME_BLOCKNUM):
+        return None
+
+    with open(FILENAME_BLOCKNUM, 'r') as infile:
+        block_num = infile.read()
+        block_num = int(block_num)
+        return block_num
+
+def set_last_block_number(block_num):
+    with open(FILENAME_BLOCKNUM, 'w') as outfile:
+        outfile.write('%d' % block_num)
+
 notified = []
-with open('notified.txt','r') as f:
-    for l in f:
-        notified.append(l.strip())
+if  os.path.exists(FILENAME_NOTIFIED):
+    with open(FILENAME_NOTIFIED,'r') as f:
+        for l in f:
+            notified.append(l.strip())
         
 posting = ''
-with open('posting.txt','r') as f:
+with open(FILENAME_POSTING,'r') as f:
     for l in f:
         posting = l.strip()
         
@@ -24,6 +45,7 @@ postacc = 'proofofbrian'
 #node = 'https://api.deathwing.me'
 node='https://api.openhive.network' #'https://api.hive.blog'
 hive = Hive(node=[node], keys={'posting':posting})
+#hive = Hive(node=[node])
 set_shared_blockchain_instance(hive)
 chain = Blockchain()
 
@@ -50,6 +72,9 @@ def addComment(comm):
 [Source]({image["Source"]})'''
     comm.reply(body=text,author=postacc)
     #return text
+
+
+
 
 tracktags = set(['poofofbrain', 
                  'profeofbrain',
@@ -93,7 +118,16 @@ tracktags = set(['poofofbrain',
 
 while True:
     try:
-        for post in chain.stream(opNames="comment", threading=True, thread_num=5):
+        current_blocknum = get_last_block_number()
+        if current_blocknum is not None:
+            print(f'Resume work at block #{current_blocknum}')
+        else:
+            print('No blocknum given. Going with live feed.')
+        for post in chain.stream(opNames="comment", start = current_blocknum, threading=True, thread_num=5):
+            if (post['block_num'] != current_blocknum):
+                current_blocknum = post['block_num']
+                set_last_block_number(current_blocknum)
+                print(f'Reading Block #{current_blocknum}')
             author = post['author']
             c = Comment(post)
             if c.is_main_post() and author not in notified and len(post['tags']) and tracktags.intersection(post['tags']):
@@ -104,7 +138,7 @@ while True:
                 c.upvote(voter=postacc)
                 notified.append(author)
                 print(f'Total notified: {len(notified)}')
-                with open('notified.txt', 'a') as f:
+                with open(FILENAME_NOTIFIED, 'a') as f:
                     f.write(f'{author}\n')
     except Exception as error:
         print(repr(error))
